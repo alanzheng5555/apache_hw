@@ -5,27 +5,24 @@ Apache_HW is an inference-optimized architecture designed for AI workloads, with
 ## Directory Structure
 
 ```
-├── rtl/                 # Register Transfer Level source files
-│   └── pe_core/         # PE (Processing Element) core design
-│       ├── pe_top_simple.v          # Top-level PE module
-│       ├── mac_array.v              # Matrix multiply-accumulate array
-│       ├── activation_unit_simple.v # Activation function unit
-│       ├── normalization_unit_simple.v # Normalization unit
-│       ├── register_file.v          # Register file implementation
-│       ├── local_cache.v            # Local cache implementation
-│       ├── pe_core_complete.v       # Complete PE core integration
-│       ├── simple_pe_test.v         # Simple functionality test
-│       ├── tb_pe_core.v             # Testbench for PE core
-│       └── tb_pe_complete.v         # Comprehensive testbench
-├── sim/                 # Simulation files and scripts
-│   └── pe_core/         # PE core simulation files
-│       ├── Makefile     # Makefile for PE core simulation
-│       ├── PE_CORE_DESIGN_REPORT.md # Design report
-│       └── README.md    # PE core simulation README
-├── test_case/          # Test cases for verification
-│   └── pe_core/        # PE core specific test cases
-│       ├── basic_functionality_test.v # Basic functionality verification
-│       └── simple_test  # Compiled test binary
+├── design/             # Design source files
+│   └── pe_core/        # PE (Processing Element) core design
+│       ├── rtl/        # Register Transfer Level source files
+│       │   ├── pe_top_simple.v          # Top-level PE module
+│       │   ├── mac_array.v              # Matrix multiply-accumulate array
+│       │   ├── activation_unit_simple.v # Activation function unit
+│       │   ├── normalization_unit_simple.v # Normalization unit
+│       │   ├── register_file.v          # Register file implementation
+│       │   ├── local_cache.v            # Local cache implementation
+│       │   ├── pe_core_complete.v       # Complete PE core integration
+│       │   ├── simple_pe_test.v         # Simple functionality test
+│       │   ├── tb_pe_core.v             # Testbench for PE core
+│       │   └── tb_pe_complete.v         # Comprehensive testbench
+│       ├── sim/        # Simulation files and scripts
+│       │   └── Makefile # Makefile for PE core simulation
+│       └── doc/        # Documentation
+│           ├── PE_CORE_DESIGN_REPORT.md # Design report
+│           └── README.md    # PE core documentation
 └── doc/                # Documentation
     ├── architecture_plan.md          # Overall architecture plan
     ├── pe_core_specification.md      # PE core technical specifications
