@@ -12,4 +12,4 @@ design/utils/sim/*
 
 # Ignore OS-specific files
 .DS_Store
-Thumbs.db
+Thumbs.dbdesign/pe_core/simple_test
