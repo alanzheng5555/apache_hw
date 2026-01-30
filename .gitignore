@@ -1,0 +1,15 @@
+# Ignore simulation output files
+*.vcd
+*.fst
+*.log
+*.out
+
+# Ignore compiled simulation binaries (files without extension in sim directory)
+design/utils/sim/*
+
+# But do not ignore .v files (source files)
+!design/utils/sim/*.v
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
