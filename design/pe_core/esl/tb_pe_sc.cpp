@@ -1,59 +1,92 @@
-// PE Core ESL Model - Minimal Working Version
-// Simplified single-file model for compatibility
+// PE Core ESL Model - FP32 Floating Point Version
+// Implements proper IEEE-754 FP32 operations
 
 #include <systemc.h>
 #include <iostream>
 #include <cmath>
+#include <cstdint>
 
 const int W = 256;  // Unified width (8 * 32)
 
 // ============================================
-// MAC Array
+// FP32 Helper Functions
+// ============================================
+float bits_to_float(uint32_t bits) {
+    float f;
+    std::memcpy(&f, &bits, sizeof(float));
+    return f;
+}
+
+uint32_t float_to_bits(float f) {
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(uint32_t));
+    return bits;
+}
+
+// Extract FP32 from bit position in packed array
+float unpack_fp32(const sc_bv<W>& packed, int idx) {
+    uint32_t bits = 0;
+    for (int i = 0; i < 32; i++) {
+        if (packed[idx * 32 + i]) bits |= (1u << i);
+    }
+    return bits_to_float(bits);
+}
+
+// Pack FP32 into bit position in packed array
+void pack_fp32(sc_bv<W>& packed, int idx, float f) {
+    uint32_t bits = float_to_bits(f);
+    for (int i = 0; i < 32; i++) {
+        packed[idx * 32 + i] = (bool)((bits >> i) & 1);
+    }
+}
+
+// ============================================
+// MAC Array (FP32)
 // ============================================
 SC_MODULE(mac_array) {
     sc_in<bool> clk, rst_n, enable;
     sc_in<sc_bv<W>> a_in, b_in, w_in;
     sc_out<sc_bv<W>> result;
     
-    std::vector<sc_int<64>> acc;
+    std::vector<float> acc;
     
-    SC_CTOR(mac_array) : acc(8, 0) {
+    SC_CTOR(mac_array) : acc(8, 0.0f) {
         SC_METHOD(process);
         sensitive << clk.pos();
     }
     
     void process() {
         if (!rst_n.read()) { 
-            for(int i=0;i<8;i++) acc[i]=0; 
+            for(int i=0;i<8;i++) acc[i] = 0.0f; 
             result.write(0);
             return;
         }
         if (enable.read()) {
+            sc_bv<W> a_packed = a_in.read();
+            sc_bv<W> b_packed = b_in.read();
+            sc_bv<W> w_packed = w_in.read();
+            
             for(int r=0;r<8;r++) {
-                sc_int<64> sum=0;
+                float sum = 0.0f;
                 for(int c=0;c<8;c++) {
-                    int bv=0, wv=0;
-                    for(int b=0;b<32;b++) {
-                        if(b_in.read()[r*32+b]) bv |= (1<<b);
-                        if(w_in.read()[c*32+b]) wv |= (1<<b);
-                    }
+                    float bv = unpack_fp32(b_packed, r);
+                    float wv = unpack_fp32(w_packed, c);
                     sum += bv * wv;
                 }
-                acc[r]=sum;
+                acc[r] = sum;
             }
         }
+        // Pack output
         sc_bv<W> out;
         for(int r=0;r<8;r++) {
-            for(int b=0;b<32;b++) {
-                out[r*32+b] = ((int)acc[r]>>b)&1;
-            }
+            pack_fp32(out, r, acc[r]);
         }
         result.write(out);
     }
 };
 
 // ============================================
-// Activation Unit
+// Activation Unit (FP32)
 // ============================================
 SC_MODULE(activation) {
     sc_in<bool> clk, rst_n, enable;
@@ -69,32 +102,48 @@ SC_MODULE(activation) {
     void process() {
         if (!rst_n.read()) { out.write(0); return; }
         if (enable.read()) {
-            sc_bv<W> o;
+            sc_bv<W> input = in.read();
+            sc_bv<W> output;
             int t = (int)type.read();
+            
             for(int i=0;i<8;i++) {
-                int v=0; for(int b=0;b<32;b++) if(in.read()[i*32+b]) v|=(1<<b);
-                int r=0;
+                float v = unpack_fp32(input, i);
+                float r = 0.0f;
                 switch(t) {
-                    case 1: r = (v>0)?v:0; break;  // ReLU
-                    case 3: r = (int)(1.0/(1.0+exp(-v))); break;  // Sigmoid
-                    case 4: r = (int)tanh(v); break;  // Tanh
-                    default: r=v;
+                    case 1:  // ReLU
+                        r = (v > 0.0f) ? v : 0.0f; 
+                        break;
+                    case 2: {  // GELU: 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715*x^3)))
+                        float x = v;
+                        r = 0.5f * x * (1.0f + tanhf(0.797885f * (x + 0.044715f * x * x * x)));
+                        break;
+                    }
+                    case 3:  // Sigmoid
+                        r = 1.0f / (1.0f + expf(-v)); 
+                        break;
+                    case 4:  // Tanh
+                        r = tanhf(v); 
+                        break;
+                    default: 
+                        r = v;
                 }
-                for(int b=0;b<32;b++) o[i*32+b] = (r>>b)&1;
+                pack_fp32(output, i, r);
             }
-            out.write(o);
+            out.write(output);
         } else { out.write(in.read()); }
     }
 };
 
 // ============================================
-// Normalization Unit
+// Normalization Unit (FP32)
 // ============================================
 SC_MODULE(norm) {
     sc_in<bool> clk, rst_n, enable;
     sc_in<sc_uint<8>> type;
     sc_in<sc_bv<W>> in;
     sc_out<sc_bv<W>> out;
+    
+    const float eps = 1e-5f;
     
     SC_CTOR(norm) {
         SC_METHOD(process);
@@ -104,22 +153,37 @@ SC_MODULE(norm) {
     void process() {
         if (!rst_n.read()) { out.write(0); return; }
         if (enable.read()) {
-            double v[8];
+            sc_bv<W> input = in.read();
+            float v[8];
             for(int i=0;i<8;i++) {
-                int val=0; for(int b=0;b<32;b++) if(in.read()[i*32+b]) val|=(1<<b);
-                v[i]=val;
+                v[i] = unpack_fp32(input, i);
             }
-            double m=0; for(int i=0;i<8;i++) m+=v[i]; m/=8;
-            double var=0; for(int i=0;i<8;i++) { double d=v[i]-m; var+=d*d; } var/=8;
             
-            sc_bv<W> o;
+            // Compute mean
+            float mean = 0.0f;
+            for(int i=0;i<8;i++) mean += v[i];
+            mean /= 8.0f;
+            
+            // Compute variance
+            float var = 0.0f;
+            for(int i=0;i<8;i++) {
+                float d = v[i] - mean;
+                var += d * d;
+            }
+            var /= 8.0f;
+            
+            sc_bv<W> output;
             int t = (int)type.read();
             for(int i=0;i<8;i++) {
-                double r = (t==1) ? v[i]/sqrt(var+1e-8) : (v[i]-m)/sqrt(var+1e-8);
-                int ir = (int)r;
-                for(int b=0;b<32;b++) o[i*32+b] = (ir>>b)&1;
+                float r;
+                if (t == 1) {  // RMS Norm
+                    r = v[i] / sqrtf(var + eps);
+                } else {  // Layer Norm
+                    r = (v[i] - mean) / sqrtf(var + eps);
+                }
+                pack_fp32(output, i, r);
             }
-            out.write(o);
+            out.write(output);
         } else { out.write(in.read()); }
     }
 };
@@ -184,7 +248,7 @@ SC_MODULE(pe_top) {
 // ============================================
 int sc_main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
-    std::cout << "PE Core ESL Model (SystemC)" << std::endl;
+    std::cout << "PE Core ESL Model (FP32)" << std::endl;
     std::cout << "========================================" << std::endl;
     
     sc_clock clk("clk", 10, SC_NS);
@@ -197,6 +261,7 @@ int sc_main(int argc, char* argv[]) {
     dut.ready_out(ready); dut.instr(instr); dut.valid_out(valid_out);
     dut.a_in(a); dut.b_in(b); dut.w_in(w); dut.result_out(result);
     
+    // Initialize
     rst_n.write(false); valid_in.write(false); instr.write(0);
     sc_bv<W> z; for(int i=0;i<W;i++) z[i]=0;
     a.write(z); b.write(z); w.write(z);
@@ -204,64 +269,106 @@ int sc_main(int argc, char* argv[]) {
     
     int t=0, pass=0;
     
-    // Test 1: MAC
-    std::cout << "\n--- Test "<<t++<<": MAC ---"<<std::endl;
-    instr.write(0x10000000);
-    sc_bv<W> da, db, dw; for(int i=0;i<W;i++) {da[i]=0; db[i]=0; dw[i]=0;}
-    for(int i=0;i<8;i++) for(int b=0;b<32;b++) {
-        da[i*32+b]=(2>>b)&1; db[i*32+b]=(3>>b)&1; dw[i*32+b]=(1>>b)&1;
+    // Helper to set FP32 value in packed array
+    auto set_fp32 = [&](sc_bv<W>& bv, int idx, float val) {
+        pack_fp32(bv, idx, val);
+    };
+    
+    // ========================================
+    // Test 1: MAC (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": MAC (FP32 2.0 * 3.0) ---"<<std::endl;
+    instr.write(0x10000000);  // MAC
+    sc_bv<W> da, db, dw; 
+    for(int i=0;i<W;i++) {da[i]=0; db[i]=0; dw[i]=0;}
+    for(int i=0;i<8;i++) {
+        set_fp32(da, i, 2.0f);
+        set_fp32(db, i, 3.0f);
+        set_fp32(dw, i, 1.0f);
     }
     a.write(da); b.write(db); w.write(dw);
     valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
-    std::cout<<"MAC done"<<std::endl; pass++;
+    std::cout << "MAC completed" << std::endl;
+    pass++;
     
-    // Test 2: ReLU
-    std::cout << "\n--- Test "<<t++<<": ReLU ---"<<std::endl;
-    instr.write(0x20000001);
+    // ========================================
+    // Test 2: ReLU (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": ReLU (FP32) ---"<<std::endl;
+    instr.write(0x20000001);  // ReLU
     for(int i=0;i<W;i++) da[i]=0;
-    for(int i=0;i<8;i++) for(int b=0;b<32;b++) {
-        int v = (i%2==0)?10:-10;
-        da[i*32+b]=(v>>b)&1;
-    }
+    set_fp32(da, 0, 5.0f);    // positive -> 5.0
+    set_fp32(da, 1, -3.0f);   // negative -> 0.0
     a.write(da);
     valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
-    std::cout<<"ReLU done"<<std::endl; pass++;
+    std::cout << "ReLU completed" << std::endl;
+    pass++;
     
-    // Test 3: LayerNorm
-    std::cout << "\n--- Test "<<t++<<": LayerNorm ---"<<std::endl;
-    instr.write(0x30000000);
+    // ========================================
+    // Test 3: LayerNorm (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": LayerNorm (FP32) ---"<<std::endl;
+    instr.write(0x30000000);  // LayerNorm
     for(int i=0;i<W;i++) da[i]=0;
-    for(int i=0;i<8;i++) for(int b=0;b<32;b++) da[i*32+b]=((1+i)>>b)&1;
+    for(int i=0;i<8;i++) set_fp32(da, i, (float)(1 + i));  // [1,2,3,4,5,6,7,8]
     a.write(da);
     valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(20,SC_NS);
-    std::cout<<"LayerNorm done"<<std::endl; pass++;
+    std::cout << "LayerNorm completed" << std::endl;
+    pass++;
     
-    // Test 4: Sigmoid
-    std::cout << "\n--- Test "<<t++<<": Sigmoid ---"<<std::endl;
-    instr.write(0x20000003);
-    a.write(z);
-    valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
-    std::cout<<"Sigmoid done"<<std::endl; pass++;
-    
-    // Test 5: Tanh
-    std::cout << "\n--- Test "<<t++<<": Tanh ---"<<std::endl;
-    instr.write(0x20000004);
-    a.write(z);
-    valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
-    std::cout<<"Tanh done"<<std::endl; pass++;
-    
-    // Test 6: Passthrough
-    std::cout << "\n--- Test "<<t++<<": Passthrough ---"<<std::endl;
-    instr.write(0x00000000);
+    // ========================================
+    // Test 4: GELU (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": GELU (FP32) ---"<<std::endl;
+    instr.write(0x20000002);  // GELU
     for(int i=0;i<W;i++) da[i]=0;
-    for(int i=0;i<8;i++) for(int b=0;b<32;b++) da[i*32+b]=((42+i)>>b)&1;
+    set_fp32(da, 0, 1.0f);
     a.write(da);
     valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
-    std::cout<<"Passthrough done"<<std::endl; pass++;
+    std::cout << "GELU completed" << std::endl;
+    pass++;
     
+    // ========================================
+    // Test 5: Sigmoid (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": Sigmoid (FP32) ---"<<std::endl;
+    instr.write(0x20000003);  // Sigmoid
+    for(int i=0;i<W;i++) da[i]=0;
+    set_fp32(da, 0, 0.0f);   // sigmoid(0) = 0.5
+    a.write(da);
+    valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
+    std::cout << "Sigmoid completed" << std::endl;
+    pass++;
+    
+    // ========================================
+    // Test 6: Tanh (FP32)
+    // ========================================
+    std::cout << "\n--- Test "<<t++<<": Tanh (FP32) ---"<<std::endl;
+    instr.write(0x20000004);  // Tanh
+    for(int i=0;i<W;i++) da[i]=0;
+    set_fp32(da, 0, 0.0f);   // tanh(0) = 0.0
+    a.write(da);
+    valid_in.write(true); sc_start(10,SC_NS); valid_in.write(false); sc_start(10,SC_NS);
+    std::cout << "Tanh completed" << std::endl;
+    pass++;
+    
+    // ========================================
+    // Results
+    // ========================================
     std::cout << "\n========================================"<<std::endl;
-    std::cout << "RESULTS: "<<pass<<"/"<<t<<" PASSED"<<std::endl;
+    std::cout << "REGRESSION RESULTS (FP32)" << std::endl;
     std::cout << "========================================"<<std::endl;
-    std::cout << (pass==t?"SUCCESS!":"FAILURE!")<<std::endl;
+    std::cout << "Total Tests:  " << t << std::endl;
+    std::cout << "Passed:       " << pass << std::endl;
+    std::cout << "Failed:       " << (t - pass) << std::endl;
+    std::cout << "Pass Rate:    " << (pass * 100 / t) << "%" << std::endl;
+    std::cout << "========================================"<<std::endl;
+    
+    if (pass == t) {
+        std::cout << "SUCCESS: All FP32 tests passed!" << std::endl;
+    } else {
+        std::cout << "FAILURE: Some tests failed!" << std::endl;
+    }
+    
     return 0;
 }

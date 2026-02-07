@@ -14,14 +14,13 @@ module mac_array #(
     input  wire [(DATA_WIDTH*ARRAY_COLS)-1:0] data_a_i,
     input  wire [(DATA_WIDTH*ARRAY_ROWS)-1:0] data_b_i,
     input  wire [(DATA_WIDTH*ARRAY_COLS)-1:0] weight_i,
-    output wire [(DATA_WIDTH*ARRAY_ROWS)-1:0] mac_result
+    output reg  [(DATA_WIDTH*ARRAY_ROWS)-1:0] mac_result
 );
 
     // Unpack data for processing
     wire [DATA_WIDTH-1:0] a_vec [ARRAY_COLS-1:0];
     wire [DATA_WIDTH-1:0] b_vec [ARRAY_ROWS-1:0];
     wire [DATA_WIDTH-1:0] w_vec [ARRAY_COLS-1:0];
-    reg  [DATA_WIDTH-1:0] result_vec [ARRAY_ROWS-1:0];
     
     genvar row, col;
     integer j;
@@ -37,7 +36,7 @@ module mac_array #(
         end
     endgenerate
     
-    // MAC operation
+    // MAC operation - use all non-blocking assignments
     generate
         for (row = 0; row < ARRAY_ROWS; row = row + 1) begin : mac_rows
             reg [DATA_WIDTH*2+8-1:0] acc;
@@ -45,22 +44,18 @@ module mac_array #(
                 if (!rst_n) begin
                     acc <= 0;
                 end else if (enable) begin
-                    acc = 0;
+                    // Use a temporary variable for accumulation
+                    reg [DATA_WIDTH*2+8-1:0] temp_acc;
+                    temp_acc = 0;
                     for (j = 0; j < ARRAY_COLS; j = j + 1) begin
-                        acc = acc + b_vec[row] * w_vec[j];
+                        temp_acc = temp_acc + b_vec[row] * w_vec[j];
                     end
+                    acc <= temp_acc;
                 end
             end
-            always @* begin
-                result_vec[row] = acc[DATA_WIDTH-1:0];
+            always @(acc) begin
+                mac_result[row*DATA_WIDTH +: DATA_WIDTH] = acc[DATA_WIDTH-1:0];
             end
-        end
-    endgenerate
-    
-    // Pack output
-    generate
-        for (row = 0; row < ARRAY_ROWS; row = row + 1) begin : pack_result
-            assign mac_result[row*DATA_WIDTH +: DATA_WIDTH] = result_vec[row];
         end
     endgenerate
 
