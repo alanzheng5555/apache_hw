@@ -4,7 +4,7 @@
 `timescale 1ns/1ps
 
 module mac_array #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter ARRAY_ROWS = 16,
     parameter ARRAY_COLS = 16
 )(

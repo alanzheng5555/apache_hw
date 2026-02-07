@@ -4,7 +4,7 @@
 `timescale 1ns/1ps
 
 module pe_top #(
-    parameter DATA_WIDTH = 16,  // FP16/BF16 width
+    parameter DATA_WIDTH = 32,  // FP32 width
     parameter VECTOR_WIDTH = 16, // Reduced for simplification
     parameter MAC_ARRAY_ROWS = 8,
     parameter MAC_ARRAY_COLS = 8

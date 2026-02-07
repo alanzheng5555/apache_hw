@@ -5,7 +5,7 @@
 `timescale 1ns/1ps
 
 module pe_top_enhanced #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter VECTOR_WIDTH = 16,
     parameter MAC_ARRAY_ROWS = 16,
     parameter MAC_ARRAY_COLS = 16,
@@ -185,7 +185,7 @@ endmodule
 
 // MAC Array - Tesla Dojo inspired
 module mac_array_enhanced #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter ARRAY_ROWS = 16,
     parameter ARRAY_COLS = 16
 )(
@@ -207,7 +207,7 @@ endmodule
 
 // Activation Unit - Multi-function
 module activation_unit_enhanced #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter VECTOR_WIDTH = 16
 )(
     input  wire                       clk,
@@ -229,7 +229,7 @@ endmodule
 
 // Normalization Unit - Layer/RMS Norm
 module normalization_unit_enhanced #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter VECTOR_WIDTH = 16
 )(
     input  wire                       clk,
@@ -249,7 +249,7 @@ endmodule
 
 // Attention Unit - QK^T + Softmax
 module attention_unit #(
-    parameter DATA_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
     parameter VECTOR_WIDTH = 16
 )(
     input  wire                       clk,

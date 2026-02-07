@@ -7,7 +7,7 @@ module register_file #(
     parameter SCALAR_REGS = 32,
     parameter VECTOR_REGS = 32,
     parameter VEC_WIDTH = 512, // Vector register width in bits
-    parameter DATA_WIDTH = 16
+    parameter DATA_WIDTH = 32
 )(
     input  wire                      clk,
     input  wire                      rst_n,

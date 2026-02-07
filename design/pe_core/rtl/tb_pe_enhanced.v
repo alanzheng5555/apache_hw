@@ -4,7 +4,7 @@
 
 module tb_pe_enhanced;
     
-    localparam DATA_WIDTH = 16;
+    localparam DATA_WIDTH = 32;
     localparam VECTOR_WIDTH = 4;
     localparam MAC_ROWS = 4;
     localparam MAC_COLS = 4;
