@@ -3,9 +3,9 @@
 
 `timescale 1ns/1ps
 
-module pe_top #(
+module pe_top_simple #(
     parameter DATA_WIDTH = 32,  // FP32 width
-    parameter VECTOR_WIDTH = 16, // Reduced for simplification
+    parameter VECTOR_WIDTH = 16,
     parameter MAC_ARRAY_ROWS = 8,
     parameter MAC_ARRAY_COLS = 8
 )(
@@ -18,13 +18,13 @@ module pe_top #(
     output wire                       ready_out,
     input  wire [31:0]               instruction,
     
-    // Data Inputs
-    input  wire [DATA_WIDTH-1:0]     data_a_i [VECTOR_WIDTH-1:0],
-    input  wire [DATA_WIDTH-1:0]     data_b_i [VECTOR_WIDTH-1:0],
-    input  wire [DATA_WIDTH-1:0]     weight_i [VECTOR_WIDTH-1:0],
+    // Data Inputs (packed for compatibility)
+    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] data_a_packed,
+    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] data_b_packed,
+    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] weight_packed,
     
-    // Data Outputs
-    output reg [DATA_WIDTH-1:0]      result_o [VECTOR_WIDTH-1:0],
+    // Data Outputs (packed)
+    output wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] result_packed,
     output wire                       valid_out,
     
     // Memory Interface (simplified)
@@ -36,25 +36,13 @@ module pe_top #(
 );
 
     // Internal signals
-    wire [DATA_WIDTH-1:0] mac_result [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] activation_result [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] norm_result [VECTOR_WIDTH-1:0];
+    wire [(DATA_WIDTH*MAC_ARRAY_ROWS)-1:0] mac_result_packed;
     
     // Instruction decode
-    wire is_mac_op, is_activation_op, is_norm_op, is_mem_op;
+    wire is_mac_op, is_activation_op, is_norm_op;
     assign is_mac_op = instruction[31:28] == 4'h1;
     assign is_activation_op = instruction[31:28] == 4'h2;
     assign is_norm_op = instruction[31:28] == 4'h3;
-    assign is_mem_op = instruction[31:28] == 4'h4;
-    
-    // Internal operation selection
-    reg [1:0] operation_mode; // 00=mac, 01=activation, 10=norm, 11=input_passthrough
-    always @(*) begin
-        if (is_mac_op) operation_mode = 2'b00;
-        else if (is_activation_op) operation_mode = 2'b01;
-        else if (is_norm_op) operation_mode = 2'b10;
-        else operation_mode = 2'b11; // passthrough
-    end
     
     // MAC Array
     mac_array #(
@@ -65,56 +53,21 @@ module pe_top #(
         .clk(clk),
         .rst_n(rst_n),
         .enable(is_mac_op & valid_in),
-        .data_a_i(data_a_i),
-        .data_b_i(data_b_i),
-        .weight_i(weight_i),
-        .mac_result(mac_result)
+        .data_a_i(data_a_packed[DATA_WIDTH*MAC_ARRAY_COLS-1:0]),
+        .data_b_i(data_b_packed[DATA_WIDTH*MAC_ARRAY_ROWS-1:0]),
+        .weight_i(weight_packed[DATA_WIDTH*MAC_ARRAY_COLS-1:0]),
+        .mac_result(mac_result_packed)
     );
     
-    // Activation Unit
-    activation_unit #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .VECTOR_WIDTH(VECTOR_WIDTH)
-    ) u_activation (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(is_activation_op & valid_in),
-        .activation_type(instruction[7:0]),
-        .data_i(data_a_i),
-        .data_o(activation_result)
-    );
+    // Output selection (passthrough for simplicity)
+    assign result_packed = is_mac_op ? { {(VECTOR_WIDTH-MAC_ARRAY_ROWS){32'd0}}, mac_result_packed } : 
+                          is_activation_op ? data_a_packed :
+                          is_norm_op ? data_a_packed : data_a_packed;
     
-    // Normalization Unit
-    normalization_unit_simple #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .VECTOR_WIDTH(VECTOR_WIDTH)
-    ) u_normalization (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(is_norm_op & valid_in),
-        .norm_type(instruction[7:0]),
-        .data_i(data_a_i),
-        .data_o(norm_result)
-    );
-    
-    // Output selection based on operation type
-    integer i;
-    always @(*) begin
-        for (i = 0; i < VECTOR_WIDTH; i = i + 1) begin
-            case (operation_mode)
-                2'b00: result_o[i] = mac_result[i];           // MAC result
-                2'b01: result_o[i] = activation_result[i];     // Activation result
-                2'b10: result_o[i] = norm_result[i];           // Normalization result
-                2'b11: result_o[i] = data_a_i[i];              // Passthrough
-            endcase
-        end
-    end
-    
+    // Valid output
     assign valid_out = valid_in;
-    assign ready_out = 1'b1; // Always ready for simplicity
-    
-    // Memory interface logic (simplified)
-    assign mem_req_o = is_mem_op & valid_in;
-    assign data_o = {256{1'b0}};
+    assign ready_out = 1'b1;
+    assign mem_req_o = 1'b0;
+    assign data_o = 256'd0;
 
 endmodule
