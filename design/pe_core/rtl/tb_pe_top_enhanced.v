@@ -306,10 +306,24 @@ module tb_pe_top_enhanced;
         end
     end
     
-    // Waveform dump
+    // Dump FSDB waveform (for VCS + Verdi)
     initial begin
-        $dumpfile("tb_pe_top_enhanced.vcd");
-        $dumpvars(0, tb_pe_top_enhanced);
+        $fsdbDumpfile("tb_pe_top_enhanced.fsdb");
+        $fsdbDumpvars(0, tb_pe_top_enhanced, "Depth=all");
+        $fsdbDumpflush;
+        $display("FSDB waveform dump started: tb_pe_top_enhanced.fsdb");
+        
+        // Additional FSDB controls
+        $fsdbAutoSwitchLimit(50000000);  // Limit file size to 50MB
+        $fsdbDumpfileSizeLimit(100000000);  // 100MB limit
+    end
+    
+    // Finish handling
+    initial begin
+        #10000000;  // Run for enough time
+        $display("Simulation timeout - finishing...");
+        $fsdbDumpoff;
+        $finish;
     end
     
 endmodule
