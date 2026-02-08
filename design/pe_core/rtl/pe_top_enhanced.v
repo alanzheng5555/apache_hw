@@ -1,14 +1,18 @@
-// PE Top with Full AXI4 Master Interface
-// Supports burst reads, wide data bus, and complete AXI4 protocol
+// PE Top with Full AXI4 Master and AXI4 Slave Interface
+// Master: Reads from external memory
+// Slave:  Allows external bus to access internal SRAM
 
 `timescale 1ns/1ps
 
 // Parameters
-localparam SIM_DATA_WIDTH = 32;
-localparam SIM_VEC_WIDTH = 4;
-localparam SIM_AXI_ADDR = 32;
-localparam SIM_AXI_DATA = 64;  // 64-bit data bus (2x32)
-localparam SIM_BURST_LEN = 8;  // Burst length
+localparam DATA_W = 32;
+localparam VEC_W = 4;
+localparam AXI_ADDR_W = 32;
+localparam AXI_DATA_W = 64;
+localparam AXI_ID_W = 4;
+localparam BURST_SZ = 8;
+localparam SRAM_DEPTH = 256;
+localparam SRAM_ADDR_W = 8;
 
 // ==========================================
 // Sub-modules
@@ -66,59 +70,136 @@ module normalization_unit #(
 endmodule
 
 // ==========================================
-// PE Top with Full AXI4 Master
+// SRAM Module (Dual-port, 32-bit wide)
+// ==========================================
+module sram #(
+    parameter DEPTH = 256,
+    parameter WIDTH = 32,
+    parameter ADDR_W = 8
+)(
+    // Port A: PE Write / AXI Read
+    input  wire                 clk_a,
+    input  wire                 we_a,
+    input  wire [ADDR_W-1:0]    addr_a,
+    input  wire [WIDTH-1:0]    wdata_a,
+    output wire [WIDTH-1:0]    rdata_a,
+    
+    // Port B: AXI Write
+    input  wire                 clk_b,
+    input  wire                 we_b,
+    input  wire [ADDR_W-1:0]    addr_b,
+    input  wire [WIDTH-1:0]    wdata_b
+);
+    
+    reg [WIDTH-1:0] mem [0:DEPTH-1];
+    
+    // Port A
+    assign rdata_a = mem[addr_a];
+    always @(posedge clk_a) begin
+        if (we_a) mem[addr_a] <= wdata_a;
+    end
+    
+    // Port B
+    always @(posedge clk_b) begin
+        if (we_b) mem[addr_b] <= wdata_b;
+    end
+    
+endmodule
+
+// ==========================================
+// PE Top with AXI Master + AXI Slave
 // ==========================================
 module pe_top #(
     parameter DATA_WIDTH = 32,
     parameter VECTOR_WIDTH = 4,
     parameter AXI_ADDR_WIDTH = 32,
-    parameter AXI_DATA_WIDTH = 64,     // 64-bit for AXI4
+    parameter AXI_DATA_WIDTH = 64,
     parameter AXI_ID_WIDTH = 4,
-    parameter BURST_SIZE = 8           // Burst length
+    parameter BURST_SIZE = 8
 )(
     // System
     input  wire                         clk,
     input  wire                         rst_n,
     
-    // AXI4 Master Write Channel (not used, for completeness)
-    output wire [AXI_ID_WIDTH-1:0]      axi_awid,
-    output wire [AXI_ADDR_WIDTH-1:0]    axi_awaddr,
-    output wire [7:0]                   axi_awlen,
-    output wire [2:0]                  axi_awsize,
-    output wire [1:0]                  axi_awburst,
-    output wire [3:0]                  axi_awcache,
-    output wire [2:0]                  axi_awprot,
-    output wire                         axi_awvalid,
-    input  wire                         axi_awready,
+    // ==========================================
+    // AXI4 Master Interface (to external memory)
+    // ==========================================
+    // Write Channel (unused)
+    output wire [AXI_ID_WIDTH-1:0]      m_awid,
+    output wire [AXI_ADDR_WIDTH-1:0]    m_awaddr,
+    output wire [7:0]                   m_awlen,
+    output wire [2:0]                  m_awsize,
+    output wire [1:0]                  m_awburst,
+    output wire [3:0]                  m_awcache,
+    output wire [2:0]                  m_awprot,
+    output wire                         m_awvalid,
+    input  wire                         m_awready,
+    output wire [AXI_DATA_WIDTH-1:0]    m_wdata,
+    output wire [(AXI_DATA_WIDTH/8)-1:0] m_wstrb,
+    output wire                         m_wlast,
+    output wire                         m_wvalid,
+    input  wire                         m_wready,
+    input  wire [AXI_ID_WIDTH-1:0]      m_bid,
+    input  wire [1:0]                   m_bresp,
+    input  wire                         m_bvalid,
+    output wire                         m_bready,
     
-    output wire [AXI_DATA_WIDTH-1:0]    axi_wdata,
-    output wire [(AXI_DATA_WIDTH/8)-1:0] axi_wstrb,
-    output wire                         axi_wlast,
-    output wire                         axi_wvalid,
-    input  wire                         axi_wready,
+    // Read Channel
+    output wire [AXI_ID_WIDTH-1:0]      m_arid,
+    output wire [AXI_ADDR_WIDTH-1:0]    m_araddr,
+    output wire [7:0]                   m_arlen,
+    output wire [2:0]                  m_arsize,
+    output wire [1:0]                  m_arburst,
+    output wire [3:0]                  m_arcache,
+    output wire [2:0]                  m_arprot,
+    output wire                         m_arvalid,
+    input  wire                         m_arready,
+    input  wire [AXI_ID_WIDTH-1:0]      m_rid,
+    input  wire [AXI_DATA_WIDTH-1:0]    m_rdata,
+    input  wire [1:0]                   m_rresp,
+    input  wire                         m_rlast,
+    input  wire                         m_rvalid,
+    output wire                         m_rready,
     
-    input  wire [AXI_ID_WIDTH-1:0]      axi_bid,
-    input  wire [1:0]                   axi_bresp,
-    input  wire                         axi_bvalid,
-    output wire                         axi_bready,
+    // ==========================================
+    // AXI4 Slave Interface (for external bus to access SRAM)
+    // ==========================================
+    // Write Channel
+    input  wire [AXI_ID_WIDTH-1:0]      s_awid,
+    input  wire [AXI_ADDR_WIDTH-1:0]    s_awaddr,
+    input  wire [7:0]                   s_awlen,
+    input  wire [2:0]                  s_awsize,
+    input  wire [1:0]                  s_awburst,
+    input  wire [3:0]                  s_awcache,
+    input  wire [2:0]                  s_awprot,
+    input  wire                         s_awvalid,
+    output wire                         s_awready,
+    input  wire [AXI_DATA_WIDTH-1:0]    s_wdata,
+    input  wire [(AXI_DATA_WIDTH/8)-1:0] s_wstrb,
+    input  wire                         s_wlast,
+    input  wire                         s_wvalid,
+    output wire                         s_wready,
+    output wire [AXI_ID_WIDTH-1:0]      s_bid,
+    output wire [1:0]                   s_bresp,
+    output wire                         s_bvalid,
+    input  wire                         s_bready,
     
-    // AXI4 Master Read Channel
-    output wire [AXI_ID_WIDTH-1:0]      axi_arid,
-    output wire [AXI_ADDR_WIDTH-1:0]    axi_araddr,
-    output wire [7:0]                   axi_arlen,
-    output wire [2:0]                  axi_arsize,
-    output wire [1:0]                  axi_arburst,
-    output wire [3:0]                  axi_arcache,
-    output wire [2:0]                  axi_arprot,
-    output wire                         axi_arvalid,
-    input  wire                         axi_arready,
-    
-    input  wire [AXI_ID_WIDTH-1:0]      axi_rid,
-    input  wire [AXI_DATA_WIDTH-1:0]    axi_rdata,
-    input  wire [1:0]                   axi_rresp,
-    input  wire                         axi_rlast,
-    input  wire                         axi_rvalid,
-    output wire                         axi_rready,
+    // Read Channel
+    input  wire [AXI_ID_WIDTH-1:0]      s_arid,
+    input  wire [AXI_ADDR_WIDTH-1:0]    s_araddr,
+    input  wire [7:0]                   s_arlen,
+    input  wire [2:0]                  s_arsize,
+    input  wire [1:0]                  s_arburst,
+    input  wire [3:0]                  s_arcache,
+    input  wire [2:0]                  s_arprot,
+    input  wire                         s_arvalid,
+    output wire                         s_arready,
+    output wire [AXI_ID_WIDTH-1:0]      s_rid,
+    output wire [AXI_DATA_WIDTH-1:0]    s_rdata,
+    output wire [1:0]                   s_rresp,
+    output wire                         s_rlast,
+    output wire                         s_rvalid,
+    input  wire                         s_rready,
     
     // Control & Status
     input  wire [AXI_ADDR_WIDTH-1:0]    base_addr,
@@ -129,32 +210,38 @@ module pe_top #(
     output wire                         error
 );
 
+    // ==========================================
     // FSM States
+    // ==========================================
     localparam IDLE       = 5'd0;
     localparam INIT_BURST = 5'd1;
     localparam WAIT_RDATA = 5'd2;
     localparam PROCESS    = 5'd3;
     localparam NEXT_OP    = 5'd4;
-    localparam DONE      = 5'd5;
+    localparam DONE       = 5'd5;
     
     // Registers
     reg [4:0] state;
-    reg [AXI_ADDR_WIDTH-1:0] current_addr;
+    reg [AXI_ADDR_WIDTH-1:0] cur_addr;
     reg [7:0] op_counter;
-    reg done_reg, error_reg;
-    reg [AXI_ID_WIDTH-1:0] axi_arid_reg;
+    reg done_r, error_r;
+    reg [AXI_ID_WIDTH-1:0] m_arid_r;
     
-    // Data buffers (64-bit bus -> 32-bit PE)
-    reg [AXI_DATA_WIDTH-1:0] read_buffer [0:1];  // 2x64-bit buffer
-    reg [7:0] read_count;
-    reg burst_started;
+    // SRAM signals
+    wire sram_we_a;
+    wire [7:0] sram_addr_a;
+    wire [31:0] sram_wdata_a;
+    reg sram_we_b, sram_we_b_reg;
+    reg [7:0] sram_addr_b, sram_addr_b_reg;
+    reg [31:0] sram_wdata_b, sram_wdata_b_reg;
+    wire [31:0] sram_rdata_a;
     
     // PE data
     reg [DATA_WIDTH-1:0] data_a [VECTOR_WIDTH-1:0];
     reg [DATA_WIDTH-1:0] data_b [VECTOR_WIDTH-1:0];
     reg [DATA_WIDTH-1:0] result [VECTOR_WIDTH-1:0];
     
-    // Control signals
+    // Control
     wire is_mac, is_act, is_norm;
     wire [7:0] act_type, norm_type;
     
@@ -164,40 +251,176 @@ module pe_top #(
     wire [DATA_WIDTH-1:0] norm_result [VECTOR_WIDTH-1:0];
     wire pe_valid;
     
-    // Decode instruction
+    // ==========================================
+    // AXI Slave Write Channel FSM
+    // ==========================================
+    reg [4:0] s_state;
+    reg [7:0] s_wcount;
+    reg [31:0] s_waddr_reg;
+    
+    localparam S_IDLE    = 3'd0;
+    localparam S_WWAIT   = 3'd1;
+    localparam S_WDATA   = 3'd2;
+    localparam S_WRESP   = 3'd3;
+    localparam S_RWAIT   = 3'd4;
+    localparam S_RDATA   = 3'd5;
+    
+    reg [4:0] s_rstate;
+    reg [7:0] s_rcount;
+    reg [31:0] s_raddr_reg;
+    reg [63:0] s_rdata_reg;
+    
+    // Decode
     assign is_mac   = instruction[31:28] == 4'h1;
     assign is_act   = instruction[31:28] == 4'h2;
     assign is_norm  = instruction[31:28] == 4'h3;
     assign act_type = instruction[7:0];
     assign norm_type = instruction[7:0];
     
-    // Assign unused write channel (not used in this design)
-    assign axi_awid = 4'd0;
-    assign axi_awaddr = 32'd0;
-    assign axi_awlen = 8'd0;
-    assign axi_awsize = 3'd0;
-    assign axi_awburst = 2'd0;
-    assign axi_awcache = 4'd0;
-    assign axi_awprot = 3'd0;
-    assign axi_awvalid = 1'b0;
-    assign axi_wdata = 64'd0;
-    assign axi_wstrb = 8'd0;
-    assign axi_wlast = 1'b0;
-    assign axi_wvalid = 1'b0;
-    assign axi_bready = 1'b0;
+    // ==========================================
+    // AXI Master Assigns (Write unused)
+    // ==========================================
+    assign m_awid = 4'd0;
+    assign m_awaddr = 32'd0;
+    assign m_awlen = 8'd0;
+    assign m_awsize = 3'd0;
+    assign m_awburst = 2'd0;
+    assign m_awcache = 4'd0;
+    assign m_awprot = 3'd0;
+    assign m_awvalid = 1'b0;
+    assign m_wdata = 64'd0;
+    assign m_wstrb = 8'd0;
+    assign m_wlast = 1'b0;
+    assign m_wvalid = 1'b0;
+    assign m_bready = 1'b0;
     
-    // AXI4 Read Channel
-    assign axi_arid    = axi_arid_reg;
-    assign axi_araddr  = current_addr;
-    assign axi_arlen   = BURST_SIZE - 1;  // Burst length - 1
-    assign axi_arsize  = 3'd3;            // 8 bytes (64 bits)
-    assign axi_arburst = 2'b01;            // INCR
-    assign axi_arcache = 4'd3;            // Normal cacheable
-    assign axi_arprot  = 3'b000;           // Data access
-    assign axi_arvalid = (state == INIT_BURST);
-    assign axi_rready  = 1'b1;            // Always ready
+    // AXI Master Read
+    assign m_arid    = m_arid_r;
+    assign m_araddr  = cur_addr;
+    assign m_arlen   = BURST_SIZE - 1;
+    assign m_arsize  = 3'd3;  // 8 bytes
+    assign m_arburst = 2'b01;  // INCR
+    assign m_arcache = 4'd3;
+    assign m_arprot  = 3'd000;
+    assign m_arvalid = (state == INIT_BURST);
+    assign m_rready  = 1'b1;
     
+    // ==========================================
+    // AXI Slave Write Channel
+    // ==========================================
+    assign s_awready = (s_state == S_WWAIT);
+    assign s_wready   = (s_state == S_WDATA);
+    assign s_bid      = s_awid;
+    assign s_bresp    = 2'b00;  // OKAY
+    assign s_bvalid   = (s_state == S_WRESP);
+    
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s_state <= S_IDLE;
+            s_waddr_reg <= 32'd0;
+            s_wcount <= 8'd0;
+            sram_we_b_reg <= 1'b0;
+            sram_wdata_b_reg <= 32'd0;
+            sram_addr_b_reg <= 8'd0;
+        end else begin
+            case (s_state)
+                S_IDLE: begin
+                    if (s_awvalid && s_awready) begin
+                        s_waddr_reg <= s_awaddr[9:2];  // Word address
+                        s_wcount <= s_awlen;
+                        s_state <= S_WWAIT;
+                    end
+                end
+                S_WWAIT: begin
+                    if (s_wvalid && s_wready) begin
+                        sram_we_b_reg <= 1'b1;
+                        sram_addr_b_reg <= s_waddr_reg;
+                        sram_wdata_b_reg <= s_wdata[31:0];
+                        s_waddr_reg <= s_waddr_reg + 1;
+                        if (s_wcount == 8'd0) begin
+                            s_state <= S_WRESP;
+                        end else begin
+                            s_wcount <= s_wcount - 1;
+                        end
+                    end else begin
+                        sram_we_b_reg <= 1'b0;
+                    end
+                end
+                S_WRESP: begin
+                    sram_we_b_reg <= 1'b0;
+                    if (s_bready && s_bvalid) begin
+                        s_state <= S_IDLE;
+                    end
+                end
+                default: s_state <= S_IDLE;
+            endcase
+        end
+    end
+    
+    // ==========================================
+    // AXI Slave Read Channel
+    // ==========================================
+    assign s_arready = (s_rstate == S_RWAIT);
+    assign s_rid     = s_arid;
+    assign s_rresp   = 2'b00;
+    assign s_rlast   = (s_rcount == 8'd0);
+    assign s_rvalid  = (s_rstate == S_RDATA);
+    assign s_rdata   = s_rdata_reg;
+    
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s_rstate <= S_IDLE;
+            s_raddr_reg <= 32'd0;
+            s_rcount <= 8'd0;
+            s_rdata_reg <= 64'd0;
+        end else begin
+            case (s_rstate)
+                S_IDLE: begin
+                    if (s_arvalid && s_arready) begin
+                        s_raddr_reg <= s_araddr[9:2];
+                        s_rcount <= s_arlen;
+                        s_rstate <= S_RWAIT;
+                    end
+                end
+                S_RWAIT: begin
+                    if (s_rready && s_rvalid) begin
+                        s_rdata_reg <= {32'd0, sram_rdata_a};
+                        if (s_rcount == 8'd0) begin
+                            s_rstate <= S_IDLE;
+                        end else begin
+                            s_raddr_reg <= s_raddr_reg + 1;
+                            s_rcount <= s_rcount - 1;
+                        end
+                    end
+                end
+                default: s_rstate <= S_IDLE;
+            endcase
+        end
+    end
+    
+    // ==========================================
+    // SRAM Instance
+    // ==========================================
+    sram #(.DEPTH(SRAM_DEPTH), .WIDTH(32), .ADDR_W(8)) u_sram (
+        .clk_a(clk),
+        .we_a(sram_we_a),
+        .addr_a(sram_addr_a),
+        .wdata_a(sram_wdata_a),
+        .rdata_a(sram_rdata_a),
+        .clk_b(clk),
+        .we_b(sram_we_b),
+        .addr_b(sram_addr_b),
+        .wdata_b(sram_wdata_b)
+    );
+    
+    // PE writes results to SRAM
+    assign sram_we_a = pe_valid;
+    assign sram_addr_a = cur_addr[9:2];  // Simplified address
+    assign sram_wdata_a = result[0];
+    
+    // ==========================================
     // PE Instances
+    // ==========================================
     mac_array #(.WIDTH(DATA_WIDTH), .SIZE(VECTOR_WIDTH)) u_mac (
         .clk(clk), .rst_n(rst_n), .enable(is_mac & pe_valid),
         .a(data_a), .b(data_b), .result(mac_result)
@@ -230,88 +453,78 @@ module pe_top #(
         end
     end
     
-    // Unpack 64-bit AXI data to 32-bit PE data
+    // Unpack AXI data
     integer j_idx;
     always @(posedge clk) begin
-        if (axi_rvalid && axi_rready) begin
-            // Lower 32 bits -> data_a[0:1], Upper 32 bits -> data_b[0:1]
+        if (m_rvalid && m_rready) begin
             for (j_idx = 0; j_idx < 2; j_idx = j_idx + 1) begin
                 if (j_idx < VECTOR_WIDTH)
-                    data_a[j_idx] <= axi_rdata[(j_idx*32)+:32];
+                    data_a[j_idx] <= m_rdata[(j_idx*32)+:32];
                 if (j_idx < VECTOR_WIDTH)
-                    data_b[j_idx] <= axi_rdata[((j_idx+2)*32)+:32];
+                    data_b[j_idx] <= m_rdata[((j_idx+2)*32)+:32];
             end
         end
     end
     
-    // FSM
-    assign pe_valid = axi_rvalid && axi_rready;
-    assign done = done_reg;
-    assign error = error_reg;
+    // ==========================================
+    // Master FSM
+    // ==========================================
+    assign pe_valid = m_rvalid && m_rready;
+    assign done = done_r;
+    assign error = error_r;
     assign op_count = op_counter;
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= IDLE;
-            current_addr <= 32'd0;
+            cur_addr <= 32'd0;
             op_counter <= 8'd0;
-            done_reg <= 1'b0;
-            error_reg <= 1'b0;
-            axi_arid_reg <= 4'd0;
-            burst_started <= 1'b0;
+            done_r <= 1'b0;
+            error_r <= 1'b0;
+            m_arid_r <= 4'd0;
         end else begin
             case (state)
                 IDLE: begin
                     if (start) begin
-                        current_addr <= base_addr;
-                        axi_arid_reg <= axi_arid_reg + 4'd1;
+                        cur_addr <= base_addr;
+                        m_arid_r <= m_arid_r + 4'd1;
                         state <= INIT_BURST;
                         op_counter <= 8'd0;
-                        done_reg <= 1'b0;
-                        error_reg <= 1'b0;
-                        burst_started <= 1'b0;
+                        done_r <= 1'b0;
+                        error_r <= 1'b0;
                     end
                 end
-                
                 INIT_BURST: begin
-                    if (axi_arvalid && axi_arready) begin
+                    if (m_arvalid && m_arready) begin
                         state <= WAIT_RDATA;
-                        burst_started <= 1'b1;
                     end
                 end
-                
                 WAIT_RDATA: begin
-                    if (axi_rvalid && axi_rready) begin
-                        if (axi_rlast) begin
-                            // Burst complete, process data
+                    if (m_rvalid && m_rready) begin
+                        if (m_rlast) begin
                             state <= PROCESS;
                         end
                     end
                 end
-                
                 PROCESS: begin
                     op_counter <= op_counter + 8'd1;
                     state <= NEXT_OP;
                 end
-                
                 NEXT_OP: begin
-                    if (op_counter >= 8'd15) begin  // Run 16 operations per burst
+                    if (op_counter >= 8'd15) begin
                         state <= DONE;
-                        done_reg <= 1'b1;
-                    end else if (burst_started) begin
-                        // Continue with next burst
-                        current_addr <= current_addr + (BURST_SIZE * 8);  // Increment by burst bytes
+                        done_r <= 1'b1;
+                    end else begin
+                        cur_addr <= cur_addr + (BURST_SIZE * 8);
                         state <= INIT_BURST;
                     end
                 end
-                
                 DONE: begin
                     if (!start) begin
                         state <= IDLE;
-                        done_reg <= 1'b0;
+                        done_r <= 1'b0;
                     end
                 end
-                
                 default: state <= IDLE;
             endcase
         end
