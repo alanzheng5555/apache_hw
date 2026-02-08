@@ -1,38 +1,17 @@
-# PE Top Design FileList Folder
+# PE Core Design FileLists
+# =========================
+# Two working versions available:
+#
+# 1. pe_core_v3.f   - Complete PE Core v3 (24 tests, 100% pass)
+# 2. pe_simple.f    - Simple PE Top design (basic functionality)
+#
+# Usage:
+#   cd /home/alan/.openclaw/workspace/apache_hw
+#   iverilog -g2012 -f flist/<version>.f
+#   vvp a.out
+#
+# Verdi:
+#   verdi -f flist/<version>.f &
+# =========================
 
-This folder contains filelists for viewing PE top design in Verdi.
-
-## FileList for Verdi
-
-### `pe_top_design.f`
-Complete filelist for viewing PE Top Enhanced design including:
-- **pe_top_enhanced.v** - Main top module with full features
-- **pe_core_complete.v** - Complete PE core integration
-- **mac_array.v** - Matrix multiply-accumulate array
-- **activation_unit_simple.v** - Activation functions (ReLU, GELU, Sigmoid)
-- **normalization_unit_simple.v** - Layer/RMS normalization
-- **register_file.v** - Scalar and vector register file
-- **local_cache.v** - L1 cache implementation
-- **Utility modules** - Clock buffers, dividers, sync cells
-
-## Usage with Verdi
-
-```bash
-# Open design in Verdi with waveform
-verdi -f pe_top_design.f -ssf tb_pe_enhanced.vcd &
-
-# Or with custom waveform file
-verdi -f pe_top_design.f -ssf your_waveform.fsdb &
-```
-
-## FileList Format
-
-The filelist uses Synopsys-compatible format with:
-- Full absolute paths for all files
-- `+incdir+` directives for include directories
-- Comments starting with `#`
-
-## Related Files
-
-- **Simulation**: `design/pe_core/sim/Makefile`
-- **Testbench**: `design/pe_core/rtl/tb_pe_enhanced.v`
+# See individual .f files for details
