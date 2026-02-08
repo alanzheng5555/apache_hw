@@ -1,274 +1,280 @@
-// Enhanced PE Top Module - Standard Verilog Version
-// High-Performance Processing Element for AI Inference
-// Based on GPU architecture research: NVIDIA Hopper, Tesla Dojo D1, AMD CDNA
+// PE Top with AXI Master Interface - Simplified
+// Wraps basic PE operations with AXI4-Lite read interface
 
 `timescale 1ns/1ps
 
-module pe_top_enhanced #(
-    parameter DATA_WIDTH = 32,
-    parameter VECTOR_WIDTH = 16,
-    parameter MAC_ARRAY_ROWS = 16,
-    parameter MAC_ARRAY_COLS = 16,
-    parameter QUANT_MODE = "NONE",
-    parameter SPARSE_ENABLE = 1,
-    parameter ATTN_ENABLE = 1
+// Simplify VECTOR_WIDTH for simulation
+localparam SIM_DATA_WIDTH = 32;
+localparam SIM_VECTOR_WIDTH = 4;
+localparam SIM_ADDR_WIDTH = 32;
+localparam SIM_AXI_WIDTH = 32;
+
+// ==========================================
+// MAC Array Module
+// ==========================================
+module mac_array #(
+    parameter WIDTH = 32,
+    parameter SIZE = 4
 )(
-    input  wire                       clk,
-    input  wire                       rst_n,
-    input  wire                       valid_in,
-    output wire                       ready_out,
-    input  wire [31:0]               instruction,
+    input  wire                 clk,
+    input  wire                 rst_n,
+    input  wire                 enable,
+    input  wire [WIDTH-1:0]    a [SIZE-1:0],
+    input  wire [WIDTH-1:0]    b [SIZE-1:0],
+    output wire [WIDTH-1:0]     result [SIZE-1:0]
+);
+    genvar i;
+    generate
+        for (i = 0; i < SIZE; i = i + 1) begin : mac_gen
+            assign result[i] = a[i] * b[i];
+        end
+    endgenerate
+endmodule
+
+// ==========================================
+// Activation Unit
+// ==========================================
+module activation_unit #(
+    parameter WIDTH = 32,
+    parameter SIZE = 4
+)(
+    input  wire                 clk,
+    input  wire                 rst_n,
+    input  wire                 enable,
+    input  wire [7:0]          act_type,
+    input  wire [WIDTH-1:0]    data_in [SIZE-1:0],
+    output wire [WIDTH-1:0]     data_out [SIZE-1:0]
+);
+    genvar i;
+    generate
+        for (i = 0; i < SIZE; i = i + 1) begin : act_gen
+            assign data_out[i] = (act_type == 8'd0) ? 
+                                 ((data_in[i][WIDTH-1]) ? 32'd0 : data_in[i]) :  // ReLU
+                                 data_in[i];
+        end
+    endgenerate
+endmodule
+
+// ==========================================
+// Normalization Unit
+// ==========================================
+module normalization_unit #(
+    parameter WIDTH = 32,
+    parameter SIZE = 4
+)(
+    input  wire                 clk,
+    input  wire                 rst_n,
+    input  wire                 enable,
+    input  wire [7:0]          norm_type,
+    input  wire [WIDTH-1:0]    data_in [SIZE-1:0],
+    output wire [WIDTH-1:0]     data_out [SIZE-1:0]
+);
+    genvar i;
+    generate
+        for (i = 0; i < SIZE; i = i + 1) begin : norm_gen
+            assign data_out[i] = data_in[i];
+        end
+    endgenerate
+endmodule
+
+// ==========================================
+// PE Top with AXI Master
+// ==========================================
+module pe_top #(
+    parameter DATA_WIDTH = 32,
+    parameter VECTOR_WIDTH = 4,
+    parameter AXI_ADDR_WIDTH = 32,
+    parameter AXI_DATA_WIDTH = 32
+)(
+    // System
+    input  wire                     clk,
+    input  wire                     rst_n,
     
-    // Data inputs - using packed arrays
-    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] data_a_packed,
-    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] data_b_packed,
-    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] weight_packed,
-    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] k_cache_packed,
-    input  wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] v_cache_packed,
+    // AXI4-Lite Master (Read)
+    output wire [AXI_ADDR_WIDTH-1:0]   axi_araddr,
+    output wire                        axi_arvalid,
+    input  wire                        axi_arready,
+    output wire [2:0]                  axi_arprot,
+    input  wire [AXI_DATA_WIDTH-1:0]   axi_rdata,
+    input  wire                        axi_rvalid,
+    output wire                        axi_rready,
+    input  wire [1:0]                  axi_rresp,
     
-    input  wire [VECTOR_WIDTH-1:0]    sparse_mask_a,
-    input  wire [VECTOR_WIDTH-1:0]    sparse_mask_b,
-    input  wire [7:0]                sparsity_ratio,
-    input  wire [7:0]                scale_a,
-    input  wire [7:0]                scale_b,
-    input  wire [7:0]                scale_o,
-    
-    input  wire [31:0]               addr_i,
-    output wire [255:0]              data_o,
-    input  wire [255:0]              data_i,
-    output wire                       mem_req_o,
-    input  wire                       mem_ack_i,
-    input  wire                       cache_flush,
-    output wire                       cache_hit,
-    output wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] result_packed,
-    output wire                       valid_out,
-    output wire [(DATA_WIDTH*VECTOR_WIDTH)-1:0] attention_packed,
-    output wire [31:0]               perf_counter,
-    output wire                       perf_overflow
+    // Control
+    input  wire [31:0]                base_addr,
+    input  wire [31:0]                instruction,
+    input  wire                        start,
+    output wire                        done,
+    output wire [7:0]                 op_count,
+    output wire                        error
 );
 
-    // Unpack input data
-    wire [DATA_WIDTH-1:0] data_a_i [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] data_b_i [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] weight_i [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] k_cache_i [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] v_cache_i [VECTOR_WIDTH-1:0];
+    // FSM States
+    localparam IDLE        = 4'd0;
+    localparam READ_A      = 4'd1;
+    localparam READ_B      = 4'd2;
+    localparam PROCESS     = 4'd3;
+    localparam NEXT        = 4'd4;
+    localparam DONE        = 4'd5;
     
-    genvar unpack_gen;
-    generate
-        for (unpack_gen = 0; unpack_gen < VECTOR_WIDTH; unpack_gen = unpack_gen + 1) begin : unpack_data
-            assign data_a_i[unpack_gen] = data_a_packed[(unpack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH];
-            assign data_b_i[unpack_gen] = data_b_packed[(unpack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH];
-            assign weight_i[unpack_gen] = weight_packed[(unpack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH];
-            assign k_cache_i[unpack_gen] = k_cache_packed[(unpack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH];
-            assign v_cache_i[unpack_gen] = v_cache_packed[(unpack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH];
-        end
-    endgenerate
+    // Registers
+    reg [3:0] state;
+    reg [31:0] current_addr;
+    reg [31:0] data_a [VECTOR_WIDTH-1:0];
+    reg [31:0] data_b [VECTOR_WIDTH-1:0];
+    reg [31:0] result [VECTOR_WIDTH-1:0];
+    reg [7:0] count;
+    reg done_reg;
+    reg error_reg;
     
-    // Internal signals
+    // Control signals
+    wire is_mac, is_act, is_norm;
+    wire [7:0] act_type, norm_type;
+    
+    // PE results
     wire [DATA_WIDTH-1:0] mac_result [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] activation_result [VECTOR_WIDTH-1:0];
+    wire [DATA_WIDTH-1:0] act_result [VECTOR_WIDTH-1:0];
     wire [DATA_WIDTH-1:0] norm_result [VECTOR_WIDTH-1:0];
-    wire [DATA_WIDTH-1:0] attention_result [VECTOR_WIDTH-1:0];
     
-    // Operation decode
-    wire is_mac_op, is_activation_op, is_norm_op, is_mem_op;
-    wire is_attention_op, is_matmul_op, is_quant_op, is_sparse_op;
+    // Decode instruction
+    assign is_mac   = instruction[31:28] == 4'h1;
+    assign is_act   = instruction[31:28] == 4'h2;
+    assign is_norm  = instruction[31:28] == 4'h3;
+    assign act_type = instruction[7:0];
+    assign norm_type = instruction[7:0];
     
-    assign is_mac_op = instruction[31:28] == 4'h1;
-    assign is_activation_op = instruction[31:28] == 4'h2;
-    assign is_norm_op = instruction[31:28] == 4'h3;
-    assign is_mem_op = instruction[31:28] == 4'h4;
-    assign is_attention_op = instruction[31:28] == 4'h5;
-    assign is_matmul_op = instruction[31:28] == 4'h6;
-    assign is_quant_op = instruction[31:28] == 4'h7;
-    assign is_sparse_op = instruction[31:28] == 4'h8;
+    // AXI signals
+    assign axi_araddr = current_addr;
+    assign axi_arvalid = (state == READ_A || state == READ_B);
+    assign axi_arprot = 3'b000;
+    assign axi_rready = 1'b1;
     
-    // MAC Array - Tesla Dojo inspired
-    mac_array_enhanced #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .ARRAY_ROWS(MAC_ARRAY_ROWS),
-        .ARRAY_COLS(MAC_ARRAY_COLS)
-    ) u_mac_array (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(is_mac_op & valid_in),
-        .data_a_i(data_a_i),
-        .data_b_i(data_b_i),
-        .weight_i(weight_i),
-        .mac_result(mac_result)
-    );
-    
-    // Activation Unit - Transformer optimized
-    activation_unit_enhanced #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .VECTOR_WIDTH(VECTOR_WIDTH)
-    ) u_activation (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(is_activation_op & valid_in),
-        .activation_type(instruction[7:0]),
-        .data_i(data_a_i),
-        .data_o(activation_result)
-    );
-    
-    // Normalization Unit - Layer/RMS Norm
-    normalization_unit_enhanced #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .VECTOR_WIDTH(VECTOR_WIDTH)
-    ) u_normalization (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(is_norm_op & valid_in),
-        .norm_type(instruction[7:0]),
-        .data_i(data_a_i),
-        .data_o(norm_result)
-    );
-    
-    // Attention Unit - Transformer QK^T + Softmax
+    // Unpack AXI data (simplified - 32-bit at a time)
+    genvar i;
     generate
-        if (ATTN_ENABLE) begin : attn_inst
-            attention_unit #(
-                .DATA_WIDTH(DATA_WIDTH),
-                .VECTOR_WIDTH(VECTOR_WIDTH)
-            ) u_attention (
-                .clk(clk),
-                .rst_n(rst_n),
-                .enable(is_attention_op & valid_in),
-                .query(data_a_i),
-                .key(k_cache_i),
-                .value(v_cache_i),
-                .attention_scores(attention_result)
-            );
-        end else begin : attn_bypass
-            assign attention_result = data_a_i;
+        for (i = 0; i < VECTOR_WIDTH; i = i + 1) begin : unpack
+            always @(posedge clk) begin
+                if (state == READ_A && axi_rvalid) begin
+                    data_a[i] <= axi_rdata;
+                end
+                if (state == READ_B && axi_rvalid) begin
+                    data_b[i] <= axi_rdata;
+                end
+            end
         end
     endgenerate
     
-    // Output selection - use reg for procedural assignment
-    reg [DATA_WIDTH-1:0] result_o [VECTOR_WIDTH-1:0];
-    integer out_idx;
-    always @(*) begin
-        for (out_idx = 0; out_idx < VECTOR_WIDTH; out_idx = out_idx + 1) begin
-            if (is_mac_op) 
-                result_o[out_idx] = mac_result[out_idx];
-            else if (is_activation_op) 
-                result_o[out_idx] = activation_result[out_idx];
-            else if (is_norm_op) 
-                result_o[out_idx] = norm_result[out_idx];
-            else if (is_attention_op) 
-                result_o[out_idx] = attention_result[out_idx];
-            else 
-                result_o[out_idx] = data_a_i[out_idx];
+    // MAC Array
+    mac_array #(.WIDTH(DATA_WIDTH), .SIZE(VECTOR_WIDTH)) u_mac (
+        .clk(clk),
+        .rst_n(rst_n),
+        .enable(is_mac & (state == PROCESS)),
+        .a(data_a),
+        .b(data_b),
+        .result(mac_result)
+    );
+    
+    // Activation Unit
+    activation_unit #(.WIDTH(DATA_WIDTH), .SIZE(VECTOR_WIDTH)) u_act (
+        .clk(clk),
+        .rst_n(rst_n),
+        .enable(is_act & (state == PROCESS)),
+        .act_type(act_type),
+        .data_in(data_a),
+        .data_out(act_result)
+    );
+    
+    // Normalization Unit
+    normalization_unit #(.WIDTH(DATA_WIDTH), .SIZE(VECTOR_WIDTH)) u_norm (
+        .clk(clk),
+        .rst_n(rst_n),
+        .enable(is_norm & (state == PROCESS)),
+        .norm_type(norm_type),
+        .data_in(data_a),
+        .data_out(norm_result)
+    );
+    
+    // Result selection
+    integer idx;
+    always @(posedge clk) begin
+        if (state == PROCESS) begin
+            if (is_mac) begin
+                for (idx = 0; idx < VECTOR_WIDTH; idx = idx + 1) begin
+                    result[idx] <= mac_result[idx];
+                end
+            end else if (is_act) begin
+                for (idx = 0; idx < VECTOR_WIDTH; idx = idx + 1) begin
+                    result[idx] <= act_result[idx];
+                end
+            end else if (is_norm) begin
+                for (idx = 0; idx < VECTOR_WIDTH; idx = idx + 1) begin
+                    result[idx] <= norm_result[idx];
+                end
+            end
         end
     end
     
-    // Pack output
-    genvar pack_gen;
-    generate
-        for (pack_gen = 0; pack_gen < VECTOR_WIDTH; pack_gen = pack_gen + 1) begin : pack_output
-            assign result_packed[(pack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH] = result_o[pack_gen];
-            assign attention_packed[(pack_gen+1)*DATA_WIDTH-1 -: DATA_WIDTH] = attention_result[pack_gen];
+    // FSM
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state       <= IDLE;
+            current_addr <= 32'd0;
+            count       <= 8'd0;
+            done_reg    <= 1'b0;
+            error_reg   <= 1'b0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    if (start) begin
+                        current_addr <= base_addr;
+                        count        <= 8'd0;
+                        state        <= READ_A;
+                        done_reg     <= 1'b0;
+                    end
+                end
+                
+                READ_A: begin
+                    if (axi_arvalid && axi_arready) begin
+                        #1 current_addr <= current_addr + 32'd4;
+                        #1 state <= READ_B;
+                    end
+                end
+                
+                READ_B: begin
+                    if (axi_arvalid && axi_arready) begin
+                        #1 current_addr <= current_addr + 32'd4;
+                        #1 state <= PROCESS;
+                    end
+                end
+                
+                PROCESS: begin
+                    count <= count + 8'd1;
+                    state <= NEXT;
+                end
+                
+                NEXT: begin
+                    if (count >= 8'd10) begin  // Run 10 operations
+                        state    <= DONE;
+                        done_reg <= 1'b1;
+                    end else begin
+                        state <= READ_A;  // Continue reading
+                    end
+                end
+                
+                DONE: begin
+                    if (!start) begin
+                        state    <= IDLE;
+                        done_reg <= 1'b0;
+                    end
+                end
+                
+                default: state <= IDLE;
+            endcase
         end
-    endgenerate
+    end
     
-    // Control signals
-    assign valid_out = valid_in;
-    assign ready_out = 1'b1;
-    assign mem_req_o = is_mem_op & valid_in;
-    assign data_o = {256{1'b0}};
-    assign cache_hit = 1'b0;
-    assign perf_counter = 32'd0;
-    assign perf_overflow = 1'b0;
+    assign done    = done_reg;
+    assign error   = error_reg;
+    assign op_count = count;
     
-endmodule
-
-// MAC Array - Tesla Dojo inspired
-module mac_array_enhanced #(
-    parameter DATA_WIDTH = 32,
-    parameter ARRAY_ROWS = 16,
-    parameter ARRAY_COLS = 16
-)(
-    input  wire                       clk,
-    input  wire                       rst_n,
-    input  wire                       enable,
-    input  wire [DATA_WIDTH-1:0]     data_a_i [ARRAY_COLS-1:0],
-    input  wire [DATA_WIDTH-1:0]     data_b_i [ARRAY_COLS-1:0],
-    input  wire [DATA_WIDTH-1:0]     weight_i [ARRAY_COLS-1:0],
-    output wire [DATA_WIDTH-1:0]     mac_result [ARRAY_ROWS-1:0]
-);
-    genvar row;
-    generate
-        for (row = 0; row < ARRAY_ROWS; row = row + 1) begin : mac_rows
-            assign mac_result[row] = data_a_i[row] * data_b_i[row];
-        end
-    endgenerate
-endmodule
-
-// Activation Unit - Multi-function
-module activation_unit_enhanced #(
-    parameter DATA_WIDTH = 32,
-    parameter VECTOR_WIDTH = 16
-)(
-    input  wire                       clk,
-    input  wire                       rst_n,
-    input  wire                       enable,
-    input  wire [7:0]                activation_type,
-    input  wire [DATA_WIDTH-1:0]     data_i [VECTOR_WIDTH-1:0],
-    output wire [DATA_WIDTH-1:0]     data_o [VECTOR_WIDTH-1:0]
-);
-    genvar i;
-    generate
-        for (i = 0; i < VECTOR_WIDTH; i = i + 1) begin : act_gen
-            assign data_o[i] = (activation_type == 8'd0) ? 
-                               ((data_i[i][DATA_WIDTH-1]) ? 16'd0 : data_i[i]) :  // ReLU
-                               data_i[i];  // Simplified for other activations
-        end
-    endgenerate
-endmodule
-
-// Normalization Unit - Layer/RMS Norm
-module normalization_unit_enhanced #(
-    parameter DATA_WIDTH = 32,
-    parameter VECTOR_WIDTH = 16
-)(
-    input  wire                       clk,
-    input  wire                       rst_n,
-    input  wire                       enable,
-    input  wire [7:0]                norm_type,
-    input  wire [DATA_WIDTH-1:0]     data_i [VECTOR_WIDTH-1:0],
-    output wire [DATA_WIDTH-1:0]     data_o [VECTOR_WIDTH-1:0]
-);
-    genvar i;
-    generate
-        for (i = 0; i < VECTOR_WIDTH; i = i + 1) begin : norm_gen
-            assign data_o[i] = data_i[i];  // Simplified - passthrough for now
-        end
-    endgenerate
-endmodule
-
-// Attention Unit - QK^T + Softmax
-module attention_unit #(
-    parameter DATA_WIDTH = 32,
-    parameter VECTOR_WIDTH = 16
-)(
-    input  wire                       clk,
-    input  wire                       rst_n,
-    input  wire                       enable,
-    input  wire [DATA_WIDTH-1:0]     query [VECTOR_WIDTH-1:0],
-    input  wire [DATA_WIDTH-1:0]     key [VECTOR_WIDTH-1:0],
-    input  wire [DATA_WIDTH-1:0]     value [VECTOR_WIDTH-1:0],
-    output wire [DATA_WIDTH-1:0]     attention_scores [VECTOR_WIDTH-1:0]
-);
-    genvar i, j;
-    wire [DATA_WIDTH-1:0] qk_temp [VECTOR_WIDTH-1:0][VECTOR_WIDTH-1:0];
-    
-    generate
-        for (i = 0; i < VECTOR_WIDTH; i = i + 1) begin : qk_row
-            for (j = 0; j < VECTOR_WIDTH; j = j + 1) begin : qk_col
-                assign qk_temp[i][j] = query[i] * key[j];
-            end
-            assign attention_scores[i] = qk_temp[0][i];  // Simplified
-        end
-    endgenerate
 endmodule
