@@ -1,4 +1,4 @@
-# PE Top AXI Design FileList
+# PE Top with Full AXI4 Interface
 # ============================================
 # Usage:
 #   cd /home/alan/.openclaw/workspace/apache_hw
@@ -6,9 +6,8 @@
 #   vvp a.out
 # ============================================
 
-# Include directories
 +incdir+design/pe_core/rtl
 
-# PE Top AXI (simplified version with MAC/Act/Norm)
+# PE Top with Full AXI4 Master
 design/pe_core/rtl/pe_top_enhanced.v
 design/pe_core/rtl/tb_pe_top_enhanced.v
