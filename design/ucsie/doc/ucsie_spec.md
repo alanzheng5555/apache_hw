@@ -4,41 +4,180 @@
 
 UCIe is an open standard for chiplet-to-chiplet interconnect, designed for high-bandwidth, low-latency communication between dies in a package.
 
-## UCIe Architecture Overview
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         UCIe Stack                                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────────────┐     ┌─────────────────┐                           │
-│  │   Protocol      │     │   Protocol      │                           │
-│  │   Layer         │◄───►│   Layer         │                           │
-│  │  (PCIe/CXL)     │     │  (PCIe/CXL)     │                           │
-│  └────────┬────────┘     └────────┬────────┘                           │
-│           │                       │                                     │
-│  ┌────────▼────────┐     ┌────────▼────────┐                           │
-│  │   Adapter       │     │   Adapter       │                           │
-│  │   Layer         │◄───►│   Layer         │                           │
-│  │                 │     │                 │                           │
-│  └────────┬────────┘     └────────┬────────┘                           │
-│           │                       │                                     │
-│  ┌────────▼────────┐     ┌────────▼────────┐                           │
-│  │   Physical      │     │   Physical     │                           │
-│  │   Layer         │◄───►│   Layer        │                           │
-│  │                 │     │                │                           │
-│  └────────┬────────┘     └────────┬────────┘                           │
-│           │                       │                                     │
-│     ┌─────┴─────┐           ┌─────┴─────┐                             │
-│     │  Analog    │           │  Analog   │                             │
-│     │  Interface │           │  Interface │                             │
-│     └─────┬─────┘           └─────┬─────┘                             │
-│           │                       │                                     │
-└───────────┼───────────────────────┼─────────────────────────────────────┘
-            │                       │
-     ┌──────┴──────┐          ┌─────┴──────┐
-     │   Die A     │          │    Die B    │
-     └─────────────┘          └─────────────┘
+│  ┌─────────────────┐     ┌─────────────────────────────────────────┐  │
+│  │   AXI4          │     │             UCIe Controller            │  │
+│  │   Interface     │◄───►│  ┌─────────────┐   ┌─────────────┐    │  │
+│  │                 │     │  │ AXI Master  │   │ AXI Slave   │    │  │
+│  └────────┬────────┘     │  │ (Initiator) │   │(Responder)  │    │  │
+│           │              │  └──────┬──────┘   └──────┬──────┘    │  │
+│  ┌────────▼────────┐     │         │                │           │  │
+│  │   Adapter      │     │         └───────┬────────┘           │  │
+│  │   Layer        │◄──────────────────────┼───────────────────►│  │
+│  │                 │                      │                    │  │
+│  └────────┬────────┘                      │                    │  │
+│           │                               │                    │  │
+│  ┌────────▼────────┐                       │                    │  │
+│  │   Physical     │◄──────────────────────┼───────────────────►│  │
+│  │   Layer        │                      │                    │  │
+│  │                │                      │                    │  │
+│  └────────┬────────┘                      │                    │  │
+│           │                               │                    │  │
+│     ┌─────┴─────┐                         │                    │  │
+│     │  Analog    │                         │                    │  │
+│     │  Interface │◄────────────────────────┴──────────────────►│  │
+│     └─────┬─────┘                                                  │
+│           │                                                        │
+└───────────┼────────────────────────────────────────────────────────┘
+            │
+     ┌──────┴──────┐
+     │   Remote     │
+     │   Chiplet    │
+     └──────────────┘
+```
+
+## UCIe Controller (AXI Interface)
+
+The UCIe Controller provides AXI4 interface to the chiplet's internal system.
+
+### Features
+
+- **AXI4 Master Interface**: Initiate transactions to remote chiplet
+- **AXI4 Slave Interface**: Respond to requests from remote chiplet
+- **Credit Management**: Flow control between initiator and responder
+- **Transaction Reordering**: Support for out-of-order transactions
+- **Error Handling**: Retry and error reporting
+
+### AXI4 Interface Signals
+
+#### Master Interface (Initiator)
+
+| Channel | Signal | Direction | Width | Description |
+|---------|--------|-----------|-------|-------------|
+| **AW** | `m_awid` | Output | ID_W | Write transaction ID |
+| | `m_awaddr` | Output | 64 | Write address |
+| | `m_awlen` | Output | 8 | Burst length (1-256) |
+| | `m_awsize` | Output | 3 | Burst size (1/2/4/8/16/32/64/128 bytes) |
+| | `m_awburst` | Output | 2 | Burst type (FIXED/INCR/WRAP) |
+| | `m_awvalid` | Output | 1 | Address valid |
+| | `m_awready` | Input | 1 | Address ready |
+| **W** | `m_wdata` | Output | 256 | Write data |
+| | `m_wstrb` | Output | 32 | Write strobe |
+| | `m_wlast` | Output | 1 | Last beat |
+| | `m_wvalid` | Output | 1 | Data valid |
+| | `m_wready` | Input | 1 | Data ready |
+| **B** | `m_bid` | Input | ID_W | Response ID |
+| | `m_bresp` | Input | 2 | Response (OKAY/EXOKAY/SLVERR/DECERR) |
+| | `m_bvalid` | Input | 1 | Response valid |
+| | `m_bready` | Output | 1 | Response ready |
+| **AR** | `m_arid` | Output | ID_W | Read transaction ID |
+| | `m_araddr` | Output | 64 | Read address |
+| | `m_arlen` | Output | 8 | Burst length |
+| | `m_arsize` | Output | 3 | Burst size |
+| | `m_arburst` | Output | 2 | Burst type |
+| | `m_arvalid` | Output | 1 | Address valid |
+| | `m_arready` | Input | 1 | Address ready |
+| **R** | `m_rid` | Input | ID_W | Read ID |
+| | `m_rdata` | Input | 256 | Read data |
+| | `m_rresp` | Input | 2 | Read response |
+| | `m_rlast` | Input | 1 | Last beat |
+| | `m_rvalid` | Input | 1 | Data valid |
+| | `m_rready` | Output | 1 | Data ready |
+
+#### Slave Interface (Responder)
+
+Same signal mapping as Master Interface, but directions reversed.
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `DATA_W` | 256 | Data bus width |
+| `ADDR_W` | 64 | Address bus width |
+| `ID_W` | 4 | AXI transaction ID width |
+| `NUM_LANES` | 16 | Number of UCIe lanes |
+| `IDE_ENABLE` | 1 | Enable encryption |
+
+## Usage Example
+
+```systemverilog
+// Instantiate UCIe link with AXI interface
+ucsie_top #(
+    .NUM_LANES(16),
+    .DATA_W(256),
+    .ADDR_W(64),
+    .ID_W(4),
+    .IDE_ENABLE(1)
+) u_ucsie (
+    .clk(clk),
+    .rst_n(rst_n),
+    
+    // AXI Master (initiate remote requests)
+    .m_awid(m_awid),
+    .m_awaddr(m_awaddr),
+    .m_awlen(m_awlen),
+    .m_awsize(m_awsize),
+    .m_awburst(m_awburst),
+    .m_awvalid(m_awvalid),
+    .m_awready(m_awready),
+    .m_wdata(m_wdata),
+    .m_wstrb(m_wstrb),
+    .m_wlast(m_wlast),
+    .m_wvalid(m_wvalid),
+    .m_wready(m_wready),
+    .m_bid(m_bid),
+    .m_bresp(m_bresp),
+    .m_bvalid(m_bvalid),
+    .m_bready(m_bready),
+    .m_arid(m_arid),
+    .m_araddr(m_araddr),
+    .m_arlen(m_arlen),
+    .m_arsize(m_arsize),
+    .m_arburst(m_arburst),
+    .m_arvalid(m_arvalid),
+    .m_arready(m_arready),
+    .m_rid(m_rid),
+    .m_rdata(m_rdata),
+    .m_rresp(m_rresp),
+    .m_rlast(m_rlast),
+    .m_rvalid(m_rvalid),
+    .m_rready(m_rready),
+    
+    // AXI Slave (respond to remote requests)
+    .s_awid(s_awid),
+    .s_awaddr(s_awaddr),
+    // ... (same pattern as master)
+    
+    // Physical interface
+    .tx_lane_p(tx_lane_p),
+    .tx_lane_n(tx_lane_n),
+    .rx_lane_p(rx_lane_p),
+    .rx_lane_n(rx_lane_n),
+    
+    // Status
+    .link_status(link_status),
+    .lane_status(lane_status)
+);
+
+// Simple write transaction
+always @(posedge clk) begin
+    if (write_enable) begin
+        m_awaddr <= remote_addr;
+        m_awlen <= 8'd15;           // 16-beat burst
+        m_awsize <= 3'd5;           // 32 bytes per beat
+        m_awvalid <= 1'b1;
+        
+        if (m_awready) begin
+            m_awvalid <= 1'b0;
+        end
+    end
+end
 ```
 
 ## UCIe Layer Specifications
