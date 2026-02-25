@@ -1,38 +1,42 @@
-# Chip Top-Level Architecture - 8×8 Core Mesh
+# Chip Top-Level Architecture - 8×8 Core Mesh with UCIe
 
 ## Overview
 
 The chip consists of **64 cores** arranged in an **8×8 2D mesh topology**. Each core contains a processing engine (PE) and a 6-port NoC router. Cores are interconnected horizontally and vertically through dedicated AXI interfaces.
 
+**UCIe Integration**: Each row ends with a UCIe (Universal Chiplet Interconnect Express) interface for chiplet-to-chiplet communication. Total 8 UCIe interfaces (one per row).
+
 ## Architecture Diagram
 
 ```
                         North Boundary
-    ┌─────────────────────────────────────────────────────────────┐
-    │                                                             │
- W  │  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐         │  E
- E  │  │[0,7]│[1,7]│[2,7]│[3,7]│[4,7]│[5,7]│[6,7]│[7,7]│         │  A
- S  │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │  S
- T  │  │[0,6]│[1,6]│[2,6]│[3,6]│[4,6]│[5,6]│[6,6]│[7,6]│         │  T
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,5]│[1,5]│[2,5]│[3,5]│[4,5]│[5,5]│[6,5]│[7,5]│         │
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,4]│[1,4]│[2,4]│[3,4]│[4,4]│[5,4]│[6,4]│[7,4]│         │
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,3]│[1,3]│[2,3]│[3,3]│[4,3]│[5,3]│[6,3]│[7,3]│         │
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,2]│[1,2]│[2,2]│[3,2]│[4,2]│[5,2]│[6,2]│[7,2]│         │
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,1]│[1,1]│[2,1]│[3,1]│[4,1]│[5,1]│[6,1]│[7,1]│         │
-    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤         │
-    │  │[0,0]│[1,0]│[2,0]│[3,0]│[4,0]│[5,0]│[6,0]│[7,0]│         │
-    │  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘         │
-    │                                                             │
-    └─────────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                                                                 │
+ W  │  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐    │  E
+ E  │  │[0,7]│[1,7]│[2,7]│[3,7]│[4,7]│[5,7]│[6,7]│[7,7]│UCIe7│    │  A
+ S  │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │  S
+ T  │  │[0,6]│[1,6]│[2,6]│[3,6]│[4,6]│[5,6]│[6,6]│[7,6]│UCIe6│    │  T
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,5]│[1,5]│[2,5]│[3,5]│[4,5]│[5,5]│[6,5]│[7,5]│UCIe5│    │
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,4]│[1,4]│[2,4]│[3,4]│[4,4]│[5,4]│[6,4]│[7,4]│UCIe4│    │
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,3]│[1,3]│[2,3]│[3,3]│[4,3]│[5,3]│[6,3]│[7,3]│UCIe3│    │
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,2]│[1,2]│[2,2]│[3,2]│[4,2]│[5,2]│[6,2]│[7,2]│UCIe2│    │
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,1]│[1,1]│[2,1]│[3,1]│[4,1]│[5,1]│[6,1]│[7,1]│UCIe1│    │
+    │  ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤    │
+    │  │[0,0]│[1,0]│[2,0]│[3,0]│[4,0]│[5,0]│[6,0]│[7,0]│UCIe0│    │
+    │  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘    │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
                         South Boundary
 
     Core [x,y]: x = column (0-7, left to right)
                 y = row (0-7, bottom to top)
+    
+    UCIe[y]: UCIe interface for row y (connected to core[7][y])
 ```
 
 ## Core Interconnection
@@ -238,6 +242,57 @@ chip_top #(
 3. **NoC integration**: External NoC connectivity via core [0,0]
 4. **Independent connections**: No shared AXI interfaces between cores
 5. **Scalable**: Parameterized dimensions (CORES_X, CORES_Y)
+6. **UCIe Integration**: 8 UCIe interfaces (one per row) for chiplet-to-chiplet communication
+
+## UCIe Interface
+
+Each row ends with a UCIe interface for high-bandwidth chiplet interconnection:
+
+| UCIe | Connected Core | Description |
+|------|----------------|-------------|
+| UCIe0 | Core[7][0] | Row 0 (bottom) |
+| UCIe1 | Core[7][1] | Row 1 |
+| UCIe2 | Core[7][2] | Row 2 |
+| UCIe3 | Core[7][3] | Row 3 |
+| UCIe4 | Core[7][4] | Row 4 |
+| UCIe5 | Core[7][5] | Row 5 |
+| UCIe6 | Core[7][6] | Row 6 |
+| UCIe7 | Core[7][7] | Row 7 (top) |
+
+### UCIe Specifications
+- **Lanes**: 16 (parameterizable)
+- **Data Width**: 256-bit
+- **Address Width**: 64-bit
+- **Protocol**: UCIe 1.0 compatible
+
+## File Structure
+
+```
+apache_hw/design/
+├── chip_top/
+│   ├── rtl/
+│   │   ├── chip_top.v              # Original 8x8 mesh top-level
+│   │   ├── chip_top_ucie_integrated.v  # New: 8x8 + UCIe
+│   │   └── mesh_router.v           # Mesh routing logic per core
+│   ├── tb/
+│   │   └── tb_chip_top.v            # Testbench
+│   └── doc/
+│       └── chip_architecture.md     # This document
+├── core/
+│   └── rtl/
+│       └── core.v                  # Core module (router + PE)
+├── noc/
+│   └── router/
+│       └── rtl/
+│           └── router_6port.v      # 6-port router
+└── ucsie/
+    ├── rtl/
+    │   ├── ucsie_top.v             # UCIe top-level
+    │   ├── ucsie_controller.v       # UCIe AXI bridge
+    │   ├── ucsie_adapter.v         # UCIe adapter layer
+    │   └── ucsie_phy.v             # UCIe physical layer
+    └── tb/
+```
 
 ## Limitations and Future Work
 
