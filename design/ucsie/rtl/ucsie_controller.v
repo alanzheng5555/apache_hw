@@ -22,34 +22,34 @@ module ucsie_controller #(
     // AXI4 Master Interface (Initiator)
     // ==========================================
     // Write Address Channel
-    output wire [ID_W-1:0]     m_awid,
-    output wire [ADDR_W-1:0]    m_awaddr,
-    output wire [7:0]          m_awlen,
-    output wire [2:0]          m_awsize,
-    output wire [1:0]          m_awburst,
-    output wire                 m_awvalid,
+    output reg [ID_W-1:0]     m_awid,
+    output reg [ADDR_W-1:0]    m_awaddr,
+    output reg [7:0]          m_awlen,
+    output reg [2:0]          m_awsize,
+    output reg [1:0]          m_awburst,
+    output reg                 m_awvalid,
     input  wire                 m_awready,
     
     // Write Data Channel
-    output wire [DATA_W-1:0]    m_wdata,
-    output wire [(DATA_W/8)-1:0] m_wstrb,
-    output wire                 m_wlast,
-    output wire                 m_wvalid,
+    output reg [DATA_W-1:0]    m_wdata,
+    output reg [(DATA_W/8)-1:0] m_wstrb,
+    output reg                 m_wlast,
+    output reg                 m_wvalid,
     input  wire                 m_wready,
     
     // Write Response Channel
     input  wire [ID_W-1:0]     m_bid,
     input  wire [1:0]          m_bresp,
     input  wire                 m_bvalid,
-    output wire                 m_bready,
+    output reg                 m_bready,
     
     // Read Address Channel
-    output wire [ID_W-1:0]     m_arid,
-    output wire [ADDR_W-1:0]    m_araddr,
-    output wire [7:0]          m_arlen,
-    output wire [2:0]          m_arsize,
-    output wire [1:0]          m_arburst,
-    output wire                 m_arvalid,
+    output reg [ID_W-1:0]     m_arid,
+    output reg [ADDR_W-1:0]    m_araddr,
+    output reg [7:0]          m_arlen,
+    output reg [2:0]          m_arsize,
+    output reg [1:0]          m_arburst,
+    output reg                 m_arvalid,
     input  wire                 m_arready,
     
     // Read Data Channel
@@ -58,7 +58,7 @@ module ucsie_controller #(
     input  wire [1:0]          m_rresp,
     input  wire                 m_rlast,
     input  wire                 m_rvalid,
-    output wire                 m_rready,
+    output reg                 m_rready,
     
     // ==========================================
     // AXI4 Slave Interface (Responder)
@@ -99,7 +99,7 @@ module ucsie_controller #(
     output wire [DATA_W-1:0]    s_rdata,
     output wire [1:0]          s_rresp,
     output wire                 s_rlast,
-    output wire                 s_rvalid,
+    output reg                 s_rvalid,
     input  wire                 s_rready,
     
     // ==========================================
@@ -146,7 +146,7 @@ module ucsie_controller #(
     localparam RECV_WRITE = 4'd4;
     localparam RECV_READ = 4'd5;
     localparam SEND_READ_DATA = 4'd6;
-    
+
     // ==========================================
     // Write FIFO (AXI Slave → UCIe TX)
     // ==========================================
@@ -283,11 +283,6 @@ module ucsie_controller #(
     reg [3:0] master_state;
     reg [7:0] beat_count;
     
-    assign m_awid = write_fifo[wr_fifo_rdptr][ADDR_W+32+8+3+2+ID_W-1 -: ID_W];
-    assign m_awaddr = write_fifo[wr_fifo_rdptr][ADDR_W+32+8+3+2-1 -: ADDR_W];
-    assign m_awlen = write_fifo[wr_fifo_rdptr][32+8+3+2-1 -: 8];
-    assign m_awsize = write_fifo[wr_fifo_rdptr][3+2-1 -: 3];
-    assign m_awburst = write_fifo[wr_fifo_rdptr][2-1 -: 2];
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

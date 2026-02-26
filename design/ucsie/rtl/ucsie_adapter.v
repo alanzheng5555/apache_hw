@@ -82,6 +82,7 @@ module ucsie_adapter #(
     localparam SEND_DATA    = 4'd3;
     localparam SEND_DLLP   = 4'd4;
     localparam WAIT_CREDIT = 4'd5;
+    localparam RECEIVE = 4'd6;
     
     // ==========================================
     // TX Signals
@@ -232,7 +233,6 @@ module ucsie_adapter #(
     // ==========================================
     // RX Path
     // ==========================================
-    localparam RECEIVE = 4'd6;
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
